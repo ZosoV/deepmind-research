@@ -42,9 +42,8 @@ _FEATURE_DTYPES = {
 
 _CONTEXT_FEATURES = {
     'key': tf.io.FixedLenFeature([], tf.int64, default_value=0),
-    'particle_type': tf.io.VarLenFeature(tf.string)
+    'particle_type': tf.io.VarLenFeature(tf.string) #and string with the particle type
 }
-
 
 def convert_to_tensor(x, encoded_dtype):
   if len(x) == 1:
@@ -74,10 +73,16 @@ def parse_serialized_simulation_example(example_proto, metadata):
     feature_description = _FEATURE_DESCRIPTION_WITH_GLOBAL_CONTEXT
   else:
     feature_description = _FEATURE_DESCRIPTION
+  
+  #Get context (not change) and feature_list (or parsed_features stores the changes over time)
   context, parsed_features = tf.io.parse_single_sequence_example(
       example_proto,
       context_features=_CONTEXT_FEATURES,
       sequence_features=feature_description)
+
+  #Convert the sequential position and step_context into tensor of tf  
+  #Each feature list has an indentifier (feature key) and item (composed of some features)
+  #two feature posible keys "position" or "step_context"
   for feature_key, item in parsed_features.items():
     convert_fn = functools.partial(
         convert_to_tensor, encoded_dtype=_FEATURE_DTYPES[feature_key]['in'])
@@ -86,6 +91,7 @@ def parse_serialized_simulation_example(example_proto, metadata):
 
   # There is an extra frame at the beginning so we can calculate pos change
   # for all frames used in the paper.
+  # position_shape = [step_context,total_num_particles, points_dim]
   position_shape = [metadata['sequence_length'] + 1, -1, metadata['dim']]
 
   # Reshape positions to correct dim:
@@ -112,6 +118,7 @@ def split_trajectory(context, features, window_length=7):
   # Our strategy is to make sure all the leading dimensions are the same size,
   # then we can use from_tensor_slices.
 
+  # shape of position : (sequence_length, ?, point_dim)
   trajectory_length = features['position'].get_shape().as_list()[0]
 
   # We then stack window_length position changes so the final
@@ -120,7 +127,8 @@ def split_trajectory(context, features, window_length=7):
   input_trajectory_length = trajectory_length - window_length + 1
 
   model_input_features = {}
-  # Prepare the context features per step.
+  # shape particle_type: (?,)
+  # Prepare the context features per step. #Repeat the particle type input_trajectory_length time
   model_input_features['particle_type'] = tf.tile(
       tf.expand_dims(context['particle_type'], axis=0),
       [input_trajectory_length, 1])

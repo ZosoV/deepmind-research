@@ -70,6 +70,7 @@ class EncodeProcessDecode(snt.AbstractModule):
 
     super().__init__(name=name)
 
+    # needed variables to intantiate some GN blocks
     self._latent_size = latent_size
     self._mlp_hidden_size = mlp_hidden_size
     self._mlp_num_hidden_layers = mlp_num_hidden_layers
@@ -77,6 +78,7 @@ class EncodeProcessDecode(snt.AbstractModule):
     self._output_size = output_size
 
     with self._enter_variable_scope():
+      #create the three different module graphs
       self._networks_builder()
 
   def _build(self, input_graph: gn.graphs.GraphsTuple) -> tf.Tensor:
@@ -95,10 +97,13 @@ class EncodeProcessDecode(snt.AbstractModule):
     """Builds the networks."""
 
     def build_mlp_with_layer_norm():
+      # returns a mlp sonnet module with layers 
+      # = [hidden_size] * num_hidden_layers + [output_size]
       mlp = build_mlp(
           hidden_size=self._mlp_hidden_size,
           num_hidden_layers=self._mlp_num_hidden_layers,
           output_size=self._latent_size)
+      #adding a final normal layer
       return snt.Sequential([mlp, snt.LayerNorm()])
 
     # The encoder graph network independently encodes edge and node features.
@@ -162,7 +167,9 @@ class EncodeProcessDecode(snt.AbstractModule):
     # One step of message passing.
     latent_graph_k = processor_network_k(latent_graph_prev_k)
 
-    # Add residuals.
+    # Add residuals. 
+    # To the new graph add residual information of nodes and edges
+    # of the prev graph
     latent_graph_k = latent_graph_k.replace(
         nodes=latent_graph_k.nodes+latent_graph_prev_k.nodes,
         edges=latent_graph_k.edges+latent_graph_prev_k.edges)

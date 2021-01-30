@@ -1,5 +1,4 @@
 # Lint as: python3
-# pylint: disable=g-bad-file-header
 # Copyright 2020 DeepMind Technologies Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -66,10 +65,13 @@ flags.DEFINE_string('output_path', None,
 
 FLAGS = flags.FLAGS
 
+# Like dictionaries they contain keys that are hashed to a particular value. 
+# But on contrary, it supports both access from key value and iteration, the 
+# functionality that dictionaries lack.
 Stats = collections.namedtuple('Stats', ['mean', 'std'])
 
 INPUT_SEQUENCE_LENGTH = 6  # So we can calculate the last 5 velocities.
-NUM_PARTICLE_TYPES = 9
+NUM_PARTICLE_TYPES = 9     # This is used to?
 KINEMATIC_PARTICLE_ID = 3
 
 
@@ -190,25 +192,59 @@ def get_input_fn(data_path, batch_size, mode, split):
     ds = tf.data.TFRecordDataset([os.path.join(data_path, f'{split}.tfrecord')])
     ds = ds.map(functools.partial(
         reading_utils.parse_serialized_simulation_example, metadata=metadata))
+    
+    # In this point, the dataset contains tuples (context, features)
+    #     context['particle_type'] => tf size: [n_particles] 
+    #     features['position']     => tf: [steps,n_particles, positions]
+
+
     if mode.startswith('one_step'):
       # Splits an entire trajectory into chunks of 7 steps.
       # Previous 5 velocities, current velocity and target.
+      # It is like a batch of 7 position steps
       split_with_window = functools.partial(
           reading_utils.split_trajectory,
           window_length=INPUT_SEQUENCE_LENGTH + 1)
       ds = ds.flat_map(split_with_window)
+
+      # In this point, the ds contains element
+      #     element['particle_type'] => tf : [n_particles]
+      #     element['position']      => rf : [7, n_particles, positions]
+
       # Splits a chunk into input steps and target steps
       ds = ds.map(prepare_inputs)
+
+      # In this point, the ds contains tuples (features,labels)
+      #     features['particle_type']           => tf: [n_particles]
+      #     features['position']                => tf: [n_particles,6,positions]
+      #     features['n_particles_per_example'] => tf: [1] value: [n_particles]
+      #     labels                              => tf: [n_particles]
+
       # If in train mode, repeat dataset forever and shuffle.
       if mode == 'one_step_train':
         ds = ds.repeat()
         ds = ds.shuffle(512)
+
       # Custom batching on the leading axis.
       ds = batch_concat(ds, batch_size)
+
+      # In this point, the ds contains tuples (features, labels)
+      # features['particle_type']          => tf: [batch_size*n_particles]
+      # features['position']               => tf: [batch_size*n_particles,6,positions]
+      # features['n_particle_per_example'] => tf: [1] value: batch_size * [n_particles] 
+      # labels                             => tf: [batch_size*n_particles,positions]
+
     elif mode == 'rollout':
       # Rollout evaluation only available for batch size 1
-      assert batch_size == 1
+      assert batch_size == 1, "batch_size must be 1"
       ds = ds.map(prepare_rollout_inputs)
+      # In this point, the ds contains tuples (features, labels)
+      # features['particle_type']          => tf: [n_particles]
+      # features['position']               => tf: [n_particles,steps,positions]
+      # features['key']                    => tf: [1] value: id_example
+      # features['n_particle_per_example'] => tf: [1] value: [n_particles]
+      # features['is_trajectory']          => tf: [1] value: True or False
+      # labels                             => tf: [n_particles, positions]
     else:
       raise ValueError(f'mode: {mode} not recognized')
     return ds
@@ -277,6 +313,8 @@ def _get_simulator(model_kwargs, metadata, acc_noise_std, vel_noise_std):
   """Instantiates the simulator."""
   # Cast statistics to numpy so they are arrays when entering the model.
   cast = lambda v: np.array(v, dtype=np.float32)
+  
+  # Create stats from metadata and appliest noise to the std
   acceleration_stats = Stats(
       cast(metadata['acc_mean']),
       _combine_std(cast(metadata['acc_std']), acc_noise_std))
@@ -285,11 +323,14 @@ def _get_simulator(model_kwargs, metadata, acc_noise_std, vel_noise_std):
       _combine_std(cast(metadata['vel_std']), vel_noise_std))
   normalization_stats = {'acceleration': acceleration_stats,
                          'velocity': velocity_stats}
+
+  # If context_mean is present, it also adds is stats, but without noise
   if 'context_mean' in metadata:
     context_stats = Stats(
         cast(metadata['context_mean']), cast(metadata['context_std']))
     normalization_stats['context'] = context_stats
 
+  # check how the the particle types are used
   simulator = learned_simulator.LearnedSimulator(
       num_dimensions=metadata['dim'],
       connectivity_radius=metadata['default_connectivity_radius'],
@@ -300,7 +341,6 @@ def _get_simulator(model_kwargs, metadata, acc_noise_std, vel_noise_std):
       particle_type_embedding_size=16)
   return simulator
 
-
 def get_one_step_estimator_fn(data_path,
                               noise_std,
                               latent_size=128,
@@ -310,6 +350,7 @@ def get_one_step_estimator_fn(data_path,
   """Gets one step model for training simulation."""
   metadata = _read_metadata(data_path)
 
+  #dictionary with the main arguments
   model_kwargs = dict(
       latent_size=latent_size,
       mlp_hidden_size=hidden_size,
@@ -318,6 +359,7 @@ def get_one_step_estimator_fn(data_path,
 
   def estimator_fn(features, labels, mode):
     target_next_position = labels
+
     simulator = _get_simulator(model_kwargs, metadata,
                                vel_noise_std=noise_std,
                                acc_noise_std=noise_std)
@@ -428,19 +470,24 @@ def _read_metadata(data_path):
   with open(os.path.join(data_path, 'metadata.json'), 'rt') as fp:
     return json.loads(fp.read())
 
-
 def main(_):
   """Train or evaluates the model."""
 
   if FLAGS.mode in ['train', 'eval']:
+    #an estimator is another way to define a model in tensorflow
+    #it needs two principal components a input function input_fn that return a tf.data.Dataset
+    #and a model_fn defined by get_one_step_estimator_fn
+    #it is like the wrapper of a model
+    model_fn = get_one_step_estimator_fn(FLAGS.data_path, FLAGS.noise_std)
     estimator = tf.estimator.Estimator(
-        get_one_step_estimator_fn(FLAGS.data_path, FLAGS.noise_std),
+        model_fn = model_fn,
         model_dir=FLAGS.model_path)
     if FLAGS.mode == 'train':
       # Train all the way through.
+      input_fn = get_input_fn(FLAGS.data_path, FLAGS.batch_size,
+                                mode='one_step_train', split='train')
       estimator.train(
-          input_fn=get_input_fn(FLAGS.data_path, FLAGS.batch_size,
-                                mode='one_step_train', split='train'),
+          input_fn=input_fn,
           max_steps=FLAGS.num_steps)
     else:
       # One-step evaluation from checkpoint.

@@ -73,14 +73,18 @@ class LearnedSimulator(snt.AbstractModule):
     self._boundaries = boundaries
     self._normalization_stats = normalization_stats
     with self._enter_variable_scope():
+      #when it is used return a tensor of output_size
       self._graph_network = graph_network.EncodeProcessDecode(
           output_size=num_dimensions, **graph_network_kwargs)
 
       if self._num_particle_types > 1:
+
+        #create a tensor variable of size [n_particles types, particle_type_embedding_size]
         self._particle_type_embedding = tf.get_variable(
             "particle_embedding",
             [self._num_particle_types, particle_type_embedding_size],
-            trainable=True, use_resource=True)
+            trainable=True, use_resource=True) #use_resource afecta como vemos la variable
+            #cuando se actualiza
 
   def _build(self, position_sequence, n_particles_per_example,
              global_context=None, particle_types=None):

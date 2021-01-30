@@ -1,0 +1,17 @@
+{
+
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            //"program":"${file}",
+            "module": "learning_to_simulate.train",
+            "console": "integratedTerminal",
+            "args": ["--data_path","/home/zoso/Documents/deepmind-research/information/datasets/WaterDropSample",
+                    "--model_path","/home/zoso/Documents/deepmind-research/information/models/WaterDropSample"]
+        }
+    ]
+}
