@@ -34,7 +34,17 @@ def _compute_connectivity(positions, radius):
     receiver indices [num_edges_in_graph]
 
   """
+  # It is used a KDTree to facilitate the search of neighboord according
+  # to a radius of connectivity
+
+  # create the tree structures
   tree = neighbors.KDTree(positions)
+
+  # get the indixes of the neighbors with a distance less than radius
+  # this function returns a list of numpy arrays. Each numpy array
+  # contains the indixes of the neighbor points.
+  # e.g receiver_list[0] = np.array([1,2,6]) 
+  # [1,2,6] are the neighbors of the point with index 0
   receivers_list = tree.query_radius(positions, r=radius)
   num_nodes = len(positions)
   senders = np.repeat(range(num_nodes), [len(a) for a in receivers_list])
@@ -61,6 +71,10 @@ def _compute_connectivity_for_batch(positions, n_node, radius):
 
   # TODO(alvarosg): Consider if we want to support batches here or not.
   # Separate the positions corresponding to particles in different graphs.
+  # Take the n_node[:-1] and use np.cumsum to define the split points
+  # e.g. n_node = [5, 7, 8] total_nodes 20
+  # split points = np.cumsum(n_node[:-1])  = [5,12]
+  # so, the split groups are [0, 5) ,[5, 12), [12,19) 
   positions_per_graph_list = np.split(positions, np.cumsum(n_node[:-1]), axis=0)
   receivers_list = []
   senders_list = []

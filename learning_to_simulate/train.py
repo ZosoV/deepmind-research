@@ -364,10 +364,18 @@ def get_one_step_estimator_fn(data_path,
                                vel_noise_std=noise_std,
                                acc_noise_std=noise_std)
     # Sample the noise to add to the inputs to the model during training.
+    # sampled_noise => tf shape: [n_particles, n_steps, positions]
+    # Also, the first position noise for each particle is setting to zero
     sampled_noise = noise_utils.get_random_walk_noise_for_position_sequence(
         features['position'], noise_std_last_step=noise_std)
+
+    # create a boolean tensor
+    # non_kinematic_mask => tf shape: [n_particle]
+    # where each value defines if that particle is non-kinematic
     non_kinematic_mask = tf.logical_not(
         get_kinematic_mask(features['particle_type']))
+
+    # sent to zero the noise when the particle is kinematic
     noise_mask = tf.cast(
         non_kinematic_mask, sampled_noise.dtype)[:, tf.newaxis, tf.newaxis]
     sampled_noise *= noise_mask
