@@ -24,6 +24,8 @@ from learning_to_simulate import learned_simulator
 def get_random_walk_noise_for_position_sequence(
     position_sequence, noise_std_last_step):
   """Returns random-walk noise in the velocity applied to the position."""
+  
+  # position_sequence => tf shape: [n_particles,n_steps,positions]
 
   velocity_sequence = learned_simulator.time_diff(position_sequence)
 

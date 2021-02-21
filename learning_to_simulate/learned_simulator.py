@@ -73,7 +73,7 @@ class LearnedSimulator(snt.AbstractModule):
     self._boundaries = boundaries
     self._normalization_stats = normalization_stats
     with self._enter_variable_scope():
-      #when it is used return a tensor of output_size
+      #when it is used return a tensor of output_size = num_dimensions
       self._graph_network = graph_network.EncodeProcessDecode(
           output_size=num_dimensions, **graph_network_kwargs)
 
@@ -118,11 +118,12 @@ class LearnedSimulator(snt.AbstractModule):
 
   def _encoder_preprocessor(
       self, position_sequence, n_node, global_context, particle_types):
+    # postion_sequence shape: [n_particles,steps,n_dim]  
     # Extract important features from the position_sequence.
     most_recent_position = position_sequence[:, -1]
-    velocity_sequence = time_diff(position_sequence)  # Finite-difference.
+    velocity_sequence = time_diff(position_sequence)  # Finite-difference. # 5 previous velocities
 
-    # Get connectivity of the graph.
+    # Get connectivity of the graph accoding to a connectivity radius
     (senders, receivers, n_edge
      ) = connectivity_utils.compute_connectivity_for_batch_pyfunc(
          most_recent_position, n_node, self._connectivity_radius)
@@ -135,6 +136,15 @@ class LearnedSimulator(snt.AbstractModule):
     normalized_velocity_sequence = (
         velocity_sequence - velocity_stats.mean) / velocity_stats.std
 
+    # MergeDim: merges the dimension 1 and 2 of the normalized_velocity_sequence
+    # e.g:
+    # arr = tf.convert_to_tensor([[[1,2],[3,4],[5,6]],[[7,8],[9,10],[11,12]]])
+    # arr.shape [2,3,2]
+    # snt.MergeDims(start=1, size=2)(arr) # shape: [2,6]
+    # return:
+    # <tf.Tensor: id=36809, shape=(2, 6), dtype=int32, numpy=
+    # array([[ 1,  2,  3,  4,  5,  6],
+    #        [ 7,  8,  9, 10, 11, 12]], dtype=int32)>
     flat_velocity_sequence = snt.MergeDims(start=1, size=2)(
         normalized_velocity_sequence)
     node_features.append(flat_velocity_sequence)
@@ -151,6 +161,8 @@ class LearnedSimulator(snt.AbstractModule):
         [distance_to_lower_boundary, distance_to_upper_boundary], axis=1)
     normalized_clipped_distance_to_boundaries = tf.clip_by_value(
         distance_to_boundaries / self._connectivity_radius, -1., 1.)
+    # the normalized_clipped_distance_to_boundaries is a tensor with -1 and 1 values
+    # of shape [n_particles, n_dim * 2]
     node_features.append(normalized_clipped_distance_to_boundaries)
 
     # Particle type.
@@ -266,5 +278,9 @@ class LearnedSimulator(snt.AbstractModule):
 
 
 def time_diff(input_sequence):
+  # take the input_sequence without of the first value
+  # and take the input sequence without the last value
+  # and diff both
+  # In other word, get the differences between the next and previous position
   return input_sequence[:, 1:] - input_sequence[:, :-1]
 
