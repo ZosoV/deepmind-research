@@ -28,10 +28,12 @@ Produce rollouts (from parent directory):
 
 """
 # pylint: enable=line-too-long
+import os
+#os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+
 import collections
 import functools
 import json
-import os
 import pickle
 
 from absl import app
@@ -41,6 +43,11 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 import tree
 
+import sys
+ROOT_DIR = os.path.abspath("/workspace/deepmind-research/")
+
+# Import Mask RCNN
+sys.path.append(ROOT_DIR)  # To find local version of the library
 
 from learning_to_simulate import learned_simulator
 from learning_to_simulate import noise_utils
@@ -73,7 +80,7 @@ Stats = collections.namedtuple('Stats', ['mean', 'std'])
 INPUT_SEQUENCE_LENGTH = 6  # So we can calculate the last 5 velocities.
 NUM_PARTICLE_TYPES = 9     # This is used to?
 KINEMATIC_PARTICLE_ID = 3
-
+NUM_GPUS = ["GPU:1", "GPU:2", "GPU:3"] #, "GPU:7"]
 
 def get_kinematic_mask(particle_types):
   """Returns a boolean mask, set to true for kinematic (obstacle) particles."""
@@ -478,10 +485,14 @@ def main(_):
     #it needs two principal components a input function input_fn that return a tf.data.Dataset
     #and a model_fn defined by get_one_step_estimator_fn
     #it is like the wrapper of a model
+    
+    dist_strategy = tf.distribute.MirroredStrategy(NUM_GPUS)
+    config = tf.estimator.RunConfig(train_distribute=dist_strategy)
     model_fn = get_one_step_estimator_fn(FLAGS.data_path, FLAGS.noise_std)
     estimator = tf.estimator.Estimator(
         model_fn = model_fn,
-        model_dir=FLAGS.model_path)
+        model_dir=FLAGS.model_path,
+        config = config )
     if FLAGS.mode == 'train':
       # Train all the way through.
       input_fn = get_input_fn(FLAGS.data_path, FLAGS.batch_size,
